@@ -36,3 +36,14 @@ The token price is calculated using:
 
 ```text
 MEME/SOL price = SOL reserve / MEME reserve
+
+## How to Use
+
+1. Import the workflow JSON into n8n.
+2. Add your Helius API key.
+3. Add your wallet public key.
+4. Add the Solana pair addresses you want to track to the watchlist.
+5. Keep `activeTrading = false` and `mode = "paper"` while testing.
+6. Run the workflow.
+
+The bot will automatically find the pool vaults, calculate the token price from on-chain reserves, convert it to USD, and simulate the paper trade.
