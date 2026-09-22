@@ -2,7 +2,7 @@
 
 A small n8n workflow for pulling Solana liquidity pool balances directly through RPC and calculating token prices from the pool reserves.
 
-The goal is to get price data directly from on-chain pool state instead of relying only on third-party price APIs.
+The goal is to get price data directly from on chain pool state instead of relying only on third party price APIs.
 
 ## Why I built it
 
