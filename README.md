@@ -9,6 +9,9 @@ The goal is to get price data directly from on chain pool state instead of relyi
 One of the main reasons for calculating price directly from Solana pool reserves is to compare how quickly on-chain state reflects market movement versus external price APIs.
 
 During one test, the tracked token experienced a very sharp selloff. At that point, the engine reported:
+![Benchmark Output](docs/BenchmarkTestingSOLBOT.png)
+
+![Market Move](docs/BenchmarkTestingRug.png)
 
 ## Why I built it
 
