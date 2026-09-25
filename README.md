@@ -102,7 +102,7 @@ Dexscreener is currently used for the SOL/USD conversion.
 ## Requirements
 
 - n8n
-- Helius RPC API key (Totally free btw sign up with google, and you get 1 million free rpc calls a month. You can run this program for 11.6 days straight.)
+- Helius RPC API key (Totally free btw sign up with google, and you get 1 million free rpc calls a month. You can run this program for 11.6 days straight each month.)
 - Solana pair addresses
 - Internet connection
 
