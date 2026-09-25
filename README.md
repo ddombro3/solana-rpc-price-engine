@@ -8,10 +8,13 @@ The goal is to get price data directly from on chain pool state instead of relyi
 
 One of the main reasons for calculating price directly from Solana pool reserves is to compare how quickly on-chain state reflects market movement versus external price APIs.
 
-During one test, the tracked token experienced a very sharp selloff. At that point, the engine reported:
+Notice the timestamp and the price difference between the two sources. The direct RPC-based engine is already reporting the lower, updated price while the Dexscreener API is still returning the older value.
+
+This shows the bot reflecting the actual pool price much sooner. The same behavior can also be seen visually in the Dexscreener GUI during the sharp price drop.
+
 ![Benchmark Output](docs/BenchmarkTestingSOLBOT.png)
 
-![Market Move](docs/BenchmarkTestingRug.png)
+![Market Movement](docs/BenchmarkTestingRug.png)
 
 ## Why I built it
 
