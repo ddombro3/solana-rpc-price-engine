@@ -1,0 +1,639 @@
+{
+  "name": "Solana RPC Price Engine - Benchmark",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        32,
+        672
+      ],
+      "id": "4d005f51-0ac9-4532-96b5-dc9c2b95586f",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "content": "### FIXED\nAdded a 1 second wait because im pretty sure  both http nodes ran almost at the same time and helius thinks im batching requests, not allowed on free tier ",
+        "height": 144,
+        "width": 272
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        256,
+        80
+      ],
+      "id": "d574f3d7-89a2-4e82-bf7a-654425dff500",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "- Have free dex screener api pull the pair addresses or manual input?\n- Fixed: Still working on getting vault token account addresses, but made some progress with getTokenAccountsByOwner() was able to get one of them.Node to the left\n- Gatekeeper RPC (beta) just released 2/12/2026 super low latency edge gateway. Need to swap out all the keys.\n-",
+        "width": 576
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -48,
+        -112
+      ],
+      "id": "90f9b330-9421-4916-b748-1996ed7fcd28",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://mainnet.helius-rpc.com/?api-key=YOUR_HELIUS_API_KEY",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"vaults_spl\",\n  \"method\": \"getTokenAccountsByOwner\",\n  \"params\": [\n    \"{{$json.pairAddress}}\",\n    { \"programId\": \"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA\" },\n    { \"encoding\": \"jsonParsed\", \"commitment\": \"confirmed\" }\n  ]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        720,
+        672
+      ],
+      "id": "f67fb590-f068-4a2b-9bab-c3a75f232354",
+      "name": "Vaults SPL"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://mainnet.helius-rpc.com/?api-key=YOUR_HELIUS_API_KEY",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"vaults_t22\",\n  \"method\": \"getTokenAccountsByOwner\",\n  \"params\": [\n    \"{{$node['Validate Bot Config'].json.pairAddress}}\",\n    { \"programId\": \"TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb\" },\n    { \"encoding\": \"jsonParsed\", \"commitment\": \"confirmed\" }\n  ]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        912,
+        672
+      ],
+      "id": "2624292d-e171-4351-a87f-9fc2eb15a83c",
+      "name": "Vaults Token2022"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ed790035-d5a3-49cc-a177-7b8637527f07",
+              "name": "pairAddress",
+              "value": "YOUR_PAIR_ADDRESS",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        848,
+        32
+      ],
+      "id": "4c1e627a-cf25-4859-a6e9-7bf21e6bf861",
+      "name": "Pair Input"
+    },
+    {
+      "parameters": {
+        "jsCode": "const WSOL = \"So11111111111111111111111111111111111111112\";\n\n// Pull validated bot config\nconst botConfig = $node[\"Validate Bot Config\"]?.json ?? {};\n\nconst pairAddressInput = botConfig?.pairAddress ?? null;\n\n// Pull RPC responses\nconst splResp = $node[\"Vaults SPL\"]?.json ?? {};\nconst t22Resp = $node[\"Vaults Token2022\"]?.json ?? {};\n\nconst splErr = splResp?.error ?? null;\nconst t22Err = t22Resp?.error ?? null;\n\nconst spl = splResp?.result?.value ?? [];\nconst t22 = t22Resp?.result?.value ?? [];\n\nconst all = [...spl, ...t22];\n\n// Normalize token accounts\nconst norm = all\n  .map((a) => {\n    const info = a?.account?.data?.parsed?.info ?? {};\n    const ta = info?.tokenAmount ?? {};\n\n    return {\n      pubkey: a?.pubkey ?? null,\n      mint: info?.mint ?? null,\n      owner: info?.owner ?? null,\n      uiAmount: Number(ta?.uiAmountString ?? ta?.uiAmount ?? 0)\n    };\n  })\n  .filter((x) => x.pubkey && x.mint);\n\n// Deduplicate by token account pubkey\nconst map = new Map();\n\nfor (const x of norm) {\n  map.set(x.pubkey, x);\n}\n\nconst uniq = [...map.values()];\n\n// Find SOL vault\nconst solVault = uniq.find((x) => x.mint === WSOL) ?? null;\n\n// Pick largest non-SOL token account as meme vault\nconst nonSol = uniq\n  .filter((x) => x.mint !== WSOL)\n  .sort((a, b) => b.uiAmount - a.uiAmount);\n\nconst memeVault = nonSol[0] ?? null;\n\nconst ok = !!solVault && !!memeVault && !splErr && !t22Err;\n\nreturn [{\n  json: {\n    ok,\n\n    // ------------------------------------------------------------\n    // Carry forward bot config\n    // ------------------------------------------------------------\n    label: botConfig?.label ?? null,\n\n    pairAddressInput,\n    pairAddress: pairAddressInput,\n\n    botWalletPublicKey: botConfig?.botWalletPublicKey ?? null,\n\n    startingBankrollUsd: botConfig?.startingBankrollUsd ?? null,\n    resetPortfolio: botConfig?.resetPortfolio ?? false,\n\n    buyUsd: botConfig?.buyUsd ?? null,\n    targetProfitUsd: botConfig?.targetProfitUsd ?? null,\n    stopLossUsd: botConfig?.stopLossUsd ?? null,\n\n    activeTrading: botConfig?.activeTrading ?? false,\n    mode: botConfig?.mode ?? \"paper\",\n\n    // ------------------------------------------------------------\n    // RPC debug info\n    // ------------------------------------------------------------\n    rpcErrors: {\n      spl: splErr,\n      token2022: t22Err\n    },\n\n    counts: {\n      splCount: spl.length,\n      token2022Count: t22.length,\n      totalUnique: uniq.length\n    },\n\n    // ------------------------------------------------------------\n    // Discovered vaults/mints\n    // ------------------------------------------------------------\n    solVaultTokenAccount: solVault?.pubkey ?? null,\n    solMint: solVault?.mint ?? null,\n\n    memeVaultTokenAccount: memeVault?.pubkey ?? null,\n    memeMint: memeVault?.mint ?? null,\n\n    allTokenAccounts: uniq,\n\n    note:\n      (!pairAddressInput)\n        ? \"pairAddress missing from Validate Bot Config.\"\n        : (splErr || t22Err)\n          ? \"One HTTP node returned RPC error; check rpcErrors.\"\n          : (!solVault)\n            ? \"SOL vault was not found.\"\n            : (!memeVault)\n              ? \"MEME vault was not found.\"\n              : \"Both vault token accounts found.\"\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1136,
+        672
+      ],
+      "id": "9ae5a207-76c5-4402-8652-a04b6e74aa60",
+      "name": "Extract Vault Address"
+    },
+    {
+      "parameters": {
+        "content": "### How to track coins\n\nGo to dex screener, find any coin in SOL copy pair address of coin, and input the pair address here under pairAddress field.",
+        "width": 208
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        288,
+        1152
+      ],
+      "id": "bf7d9b89-4f6d-4bb7-bfe1-717014610e81",
+      "name": "Sticky Note5"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// CALCULATE PRICE\n// Reads getMultipleAccounts response from \"Base and Quote Balance\"\n// and carries forward bot config from \"Extract Vault Address\".\n// ============================================================\n\nconst resp = $json;\n\nconst snapshotSlot = resp?.result?.context?.slot ?? null;\nconst accounts = resp?.result?.value ?? [];\n\nconst memeAccount = accounts[0] ?? null;\nconst solAccount = accounts[1] ?? null;\n\nconst vaultInfo = $node[\"Extract Vault Address\"]?.json ?? {};\n\nconst label = vaultInfo?.label ?? null;\n\nconst pairAddress = vaultInfo?.pairAddress ?? vaultInfo?.pairAddressInput ?? null;\n\nconst botWalletPublicKey = vaultInfo?.botWalletPublicKey ?? null;\n\nconst startingBankrollUsd = Number(vaultInfo?.startingBankrollUsd ?? 0);\nconst resetPortfolio = Boolean(vaultInfo?.resetPortfolio ?? false);\n\nconst buyUsd = Number(vaultInfo?.buyUsd ?? 0);\nconst targetProfitUsd = Number(vaultInfo?.targetProfitUsd ?? 0);\nconst stopLossUsd = Number(vaultInfo?.stopLossUsd ?? 0);\n\nconst activeTrading = Boolean(vaultInfo?.activeTrading ?? false);\nconst mode = String(vaultInfo?.mode ?? \"paper\");\n\nconst memeVaultTokenAccount = vaultInfo?.memeVaultTokenAccount ?? null;\nconst solVaultTokenAccount = vaultInfo?.solVaultTokenAccount ?? null;\nconst memeMint = vaultInfo?.memeMint ?? null;\nconst solMint = vaultInfo?.solMint ?? null;\n\nfunction getTokenAmount(account) {\n  const tokenAmount = account?.data?.parsed?.info?.tokenAmount;\n\n  if (!tokenAmount) {\n    return {\n      ok: false,\n      uiAmount: null,\n      rawAmount: null,\n      decimals: null,\n      error: \"Missing tokenAmount field\"\n    };\n  }\n\n  const uiAmount = Number(tokenAmount?.uiAmountString ?? tokenAmount?.uiAmount);\n  const rawAmount = tokenAmount?.amount ?? null;\n  const decimals = tokenAmount?.decimals ?? null;\n\n  if (!Number.isFinite(uiAmount)) {\n    return {\n      ok: false,\n      uiAmount: null,\n      rawAmount,\n      decimals,\n      error: \"uiAmount is not a valid number\"\n    };\n  }\n\n  return {\n    ok: true,\n    uiAmount,\n    rawAmount,\n    decimals,\n    error: null\n  };\n}\n\n// ============================================================\n// VALIDATION\n// ============================================================\n\nif (!resp?.result) {\n  return [{\n    json: {\n      ...vaultInfo,\n      ok: false,\n      stage: \"calculate_price\",\n      error: \"Invalid RPC response: missing result\",\n      rpcError: resp?.error ?? null,\n      rawResponse: resp\n    }\n  }];\n}\n\nif (!Array.isArray(accounts) || accounts.length < 2) {\n  return [{\n    json: {\n      ...vaultInfo,\n      ok: false,\n      stage: \"calculate_price\",\n      error: \"Invalid getMultipleAccounts response: expected at least 2 accounts\",\n      snapshotSlot,\n      accountsReturned: accounts.length,\n      rawResponse: resp\n    }\n  }];\n}\n\nif (!memeAccount || !solAccount) {\n  return [{\n    json: {\n      ...vaultInfo,\n      ok: false,\n      stage: \"calculate_price\",\n      error: \"One or both vault accounts returned null\",\n      snapshotSlot,\n      memeAccountExists: !!memeAccount,\n      solAccountExists: !!solAccount,\n      memeVaultTokenAccount,\n      solVaultTokenAccount,\n      rawAccounts: accounts\n    }\n  }];\n}\n\nconst memeBalance = getTokenAmount(memeAccount);\nconst solBalance = getTokenAmount(solAccount);\n\nif (!memeBalance.ok || !solBalance.ok) {\n  return [{\n    json: {\n      ...vaultInfo,\n      ok: false,\n      stage: \"calculate_price\",\n      error: \"Could not parse token balances from vault accounts\",\n      snapshotSlot,\n      memeBalance,\n      solBalance,\n      memeRaw: memeAccount,\n      solRaw: solAccount\n    }\n  }];\n}\n\nconst baseUi = memeBalance.uiAmount;\nconst quoteUi = solBalance.uiAmount;\n\nif (baseUi <= 0 || quoteUi <= 0) {\n  return [{\n    json: {\n      ...vaultInfo,\n      ok: false,\n      stage: \"calculate_price\",\n      error: \"Invalid reserve values: reserves must be greater than zero\",\n      snapshotSlot,\n      baseReserveMEME: baseUi,\n      quoteReserveSOL: quoteUi,\n      memeBalance,\n      solBalance\n    }\n  }];\n}\n\n// ============================================================\n// PRICE CALCULATION\n// ============================================================\n\nconst solPriceMeme = quoteUi / baseUi;\n\nconst sanity =\n  Number.isFinite(solPriceMeme) &&\n  solPriceMeme > 0;\n\nconst usdPriceMeme = null;\n\nconst targetValueUsd =\n  Number.isFinite(buyUsd) && Number.isFinite(targetProfitUsd)\n    ? buyUsd + targetProfitUsd\n    : null;\n\n// ============================================================\n// OUTPUT\n// ============================================================\n\nreturn [{\n  json: {\n    ok: sanity,\n    stage: \"calculate_price\",\n\n    label,\n\n    pairAddress,\n    botWalletPublicKey,\n\n    startingBankrollUsd,\n    resetPortfolio,\n\n    buyUsd,\n    targetProfitUsd,\n    targetValueUsd,\n    stopLossUsd,\n\n    activeTrading,\n    mode,\n\n    pair: \"MEME/SOL\",\n\n    memeMint,\n    solMint,\n\n    memeVaultTokenAccount,\n    solVaultTokenAccount,\n\n    solPriceMeme,\n    usdPriceMeme,\n\n    baseReserveMEME: baseUi,\n    quoteReserveSOL: quoteUi,\n\n    baseRawAmount: memeBalance.rawAmount,\n    quoteRawAmount: solBalance.rawAmount,\n    baseDecimals: memeBalance.decimals,\n    quoteDecimals: solBalance.decimals,\n\n    snapshotSlot,\n\n    baseSlot: snapshotSlot,\n    quoteSlot: snapshotSlot,\n\n    timestamp: new Date().toISOString(),\n\n    note: sanity\n      ? \"Price computed from MEME and SOL vault balances in one getMultipleAccounts snapshot.\"\n      : \"Price calculation failed sanity check. Verify vault accounts and token order.\"\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1648,
+        672
+      ],
+      "id": "f9f6d619-6d7f-4958-b4ba-4c3523c8e435",
+      "name": "Calculate price"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// PAPER TRADE NODE\n// Shared bankroll version.\n// Opens/updates one paper position per pair using shared cash.\n// Does NOT close positions; exit/close happens in Store Exit node.\n// ============================================================\n\nconst calc = $json;\n\nconst currentSolPerMeme = Number(calc?.solPriceMeme);\n\nif (!Number.isFinite(currentSolPerMeme) || currentSolPerMeme <= 0) {\n  return [{\n    json: {\n      ...calc,\n      ok: false,\n      stage: \"paper_trade\",\n      error: \"Invalid solPriceMeme from Calculate price\"\n    }\n  }];\n}\n\n// ============================================================\n// CONFIG\n// ============================================================\n\nconst STARTING_BANKROLL_USD = Number(calc?.startingBankrollUsd ?? 100);\nconst RESET_PORTFOLIO = Boolean(calc?.resetPortfolio ?? false);\n\nconst CONFIG_BUY_USD = Number(calc?.buyUsd ?? 1);\nconst CONFIG_TARGET_PROFIT_USD = Number(calc?.targetProfitUsd ?? 2);\nconst CONFIG_STOP_LOSS_USD = Number(calc?.stopLossUsd ?? 1);\n\nconst SOL_USD = Number(calc.currentSolUsd);\n\nif (!Number.isFinite(SOL_USD) || SOL_USD <= 0) {\n  return [{\n    json: {\n      ...calc,\n      ok: false,\n      stage: \"paper_trade\",\n      error: \"Missing or invalid currentSolUsd before Paper Trade\"\n    }\n  }];\n}\n\nif (!Number.isFinite(STARTING_BANKROLL_USD) || STARTING_BANKROLL_USD <= 0) {\n  return [{\n    json: {\n      ...calc,\n      ok: false,\n      stage: \"paper_trade\",\n      error: \"Invalid startingBankrollUsd\"\n    }\n  }];\n}\n\nif (!Number.isFinite(CONFIG_BUY_USD) || CONFIG_BUY_USD <= 0) {\n  return [{\n    json: {\n      ...calc,\n      ok: false,\n      stage: \"paper_trade\",\n      error: \"Invalid buyUsd\"\n    }\n  }];\n}\n\nif (!Number.isFinite(CONFIG_TARGET_PROFIT_USD) || CONFIG_TARGET_PROFIT_USD <= 0) {\n  return [{\n    json: {\n      ...calc,\n      ok: false,\n      stage: \"paper_trade\",\n      error: \"Invalid targetProfitUsd\"\n    }\n  }];\n}\n\nif (!Number.isFinite(CONFIG_STOP_LOSS_USD) || CONFIG_STOP_LOSS_USD <= 0) {\n  return [{\n    json: {\n      ...calc,\n      ok: false,\n      stage: \"paper_trade\",\n      error: \"Invalid stopLossUsd\"\n    }\n  }];\n}\n\n// Options: \"no_fees\", \"low_fee\", \"realistic\", \"high_slippage\"\nconst ACTIVE_SCENARIO_NAME = \"low_fee\";\n\n// ============================================================\n// FEE / SLIPPAGE SCENARIOS\n// ============================================================\n\nconst SCENARIOS = [\n  {\n    name: \"no_fees\",\n    description: \"Original ideal paper trade. No fees, no slippage.\",\n    entrySwapFeePct: 0,\n    exitSwapFeePct: 0,\n    entrySlippagePct: 0,\n    exitSlippagePct: 0,\n    entryFixedFeeUsd: 0,\n    exitFixedFeeUsd: 0\n  },\n  {\n    name: \"low_fee\",\n    description: \"Small swap fee and small slippage.\",\n    entrySwapFeePct: 0.25,\n    exitSwapFeePct: 0.25,\n    entrySlippagePct: 0.50,\n    exitSlippagePct: 0.50,\n    entryFixedFeeUsd: 0.02,\n    exitFixedFeeUsd: 0.02\n  },\n  {\n    name: \"realistic\",\n    description: \"More realistic memecoin paper trade estimate.\",\n    entrySwapFeePct: 1.00,\n    exitSwapFeePct: 1.00,\n    entrySlippagePct: 2.00,\n    exitSlippagePct: 2.00,\n    entryFixedFeeUsd: 0.05,\n    exitFixedFeeUsd: 0.05\n  },\n  {\n    name: \"high_slippage\",\n    description: \"Stress test for thin liquidity / bad fill.\",\n    entrySwapFeePct: 1.00,\n    exitSwapFeePct: 1.00,\n    entrySlippagePct: 5.00,\n    exitSlippagePct: 5.00,\n    entryFixedFeeUsd: 0.25,\n    exitFixedFeeUsd: 0.25\n  }\n];\n\n// ============================================================\n// STATIC STORAGE / PORTFOLIO INIT\n// ============================================================\n\nconst store = $getWorkflowStaticData(\"global\");\n\nif (RESET_PORTFOLIO || !store.portfolio) {\n  store.portfolio = {\n    startingBankrollUsd: STARTING_BANKROLL_USD,\n    cashUsd: STARTING_BANKROLL_USD,\n    positions: {},\n    createdAt: new Date().toISOString(),\n    resetAt: RESET_PORTFOLIO ? new Date().toISOString() : null\n  };\n\n  store.highestPnLUsd = {};\n  store.completedTrades = [];\n}\n\nstore.portfolio.positions = store.portfolio.positions || {};\nstore.highestPnLUsd = store.highestPnLUsd || {};\nstore.completedTrades = store.completedTrades || {};\n\nconst portfolio = store.portfolio;\n\n// Stable key per coin/pair\nconst key =\n  calc?.pairAddress ||\n  calc?.memeMint ||\n  calc?.memeVaultTokenAccount ||\n  \"UNKNOWN_PAIR\";\n\nlet pos = portfolio.positions[key] ?? null;\n\n// If this pair was already closed, do not reopen automatically\nif (pos?.status === \"CLOSED\") {\n  return [{\n    json: {\n      ...calc,\n      ok: true,\n      stage: \"paper_trade\",\n\n      currentPairKey: key,\n      positionStatus: \"CLOSED\",\n      positionOpened: false,\n      skippedClosedPosition: true,\n\n      portfolioCashUsd: portfolio.cashUsd,\n      portfolioStartingBankrollUsd: portfolio.startingBankrollUsd,\n      openPositionsCount: Object.values(portfolio.positions).filter(p => p.status === \"OPEN\").length,\n\n      targetHit: false,\n      stopLossHit: false,\n      shouldExit: false,\n      exitReason: \"ALREADY_CLOSED\",\n\n      note: \"This pair was already closed. Skipping automatic reopen.\"\n    }\n  }];\n}\n\n// Open position if none exists\nif (!pos) {\n  const availableCashUsd = Number(portfolio.cashUsd ?? 0);\n  const tradeUsd = Math.min(CONFIG_BUY_USD, availableCashUsd);\n\n  if (!Number.isFinite(tradeUsd) || tradeUsd <= 0) {\n    return [{\n      json: {\n        ...calc,\n        ok: true,\n        stage: \"paper_trade\",\n\n        currentPairKey: key,\n        positionOpened: false,\n        positionStatus: \"NO_CASH\",\n\n        portfolioCashUsd: availableCashUsd,\n        portfolioStartingBankrollUsd: portfolio.startingBankrollUsd,\n        openPositionsCount: Object.values(portfolio.positions).filter(p => p.status === \"OPEN\").length,\n\n        targetHit: false,\n        stopLossHit: false,\n        shouldExit: false,\n        exitReason: \"NO_CASH\",\n\n        note: \"No available portfolio cash to open this position.\"\n      }\n    }];\n  }\n\n  const targetValueUsd = tradeUsd + CONFIG_TARGET_PROFIT_USD;\n\n  portfolio.cashUsd = availableCashUsd - tradeUsd;\n\n  pos = {\n    status: \"OPEN\",\n\n    pairAddress: calc?.pairAddress ?? null,\n    memeMint: calc?.memeMint ?? null,\n\n    configuredBuyUsd: CONFIG_BUY_USD,\n    usdInput: tradeUsd,\n\n    targetProfitUsd: CONFIG_TARGET_PROFIT_USD,\n    targetValueUsd,\n    stopLossUsd: CONFIG_STOP_LOSS_USD,\n\n    entryPriceSolPerMeme: currentSolPerMeme,\n    entrySolUsd: SOL_USD,\n    entryTimestamp: new Date().toISOString()\n  };\n\n  portfolio.positions[key] = pos;\n}\n\nconst usdInput = Number(pos.usdInput);\nconst targetProfitUsd = Number(pos.targetProfitUsd);\nconst targetValueUsd = Number(pos.targetValueUsd);\nconst stopLossUsd = Number(pos.stopLossUsd);\n\nconst entryPriceSolPerMeme = Number(pos.entryPriceSolPerMeme);\nconst entrySolUsd = Number(pos.entrySolUsd);\nconst currentSolUsd = SOL_USD;\n\nif (\n  !Number.isFinite(usdInput) ||\n  !Number.isFinite(targetProfitUsd) ||\n  !Number.isFinite(targetValueUsd) ||\n  !Number.isFinite(stopLossUsd) ||\n  !Number.isFinite(entryPriceSolPerMeme) ||\n  !Number.isFinite(entrySolUsd) ||\n  usdInput <= 0 ||\n  targetProfitUsd <= 0 ||\n  targetValueUsd <= 0 ||\n  stopLossUsd <= 0 ||\n  entryPriceSolPerMeme <= 0 ||\n  entrySolUsd <= 0\n) {\n  return [{\n    json: {\n      ...calc,\n      ok: false,\n      stage: \"paper_trade\",\n      error: \"Invalid stored paper trade position\",\n      position: pos\n    }\n  }];\n}\n\n// ============================================================\n// HELPERS\n// ============================================================\n\nfunction pctToDecimal(pct) {\n  return Number(pct) / 100;\n}\n\nfunction simulateScenario(scenario) {\n  const entrySwapFee = pctToDecimal(scenario.entrySwapFeePct);\n  const exitSwapFee = pctToDecimal(scenario.exitSwapFeePct);\n  const entrySlippage = pctToDecimal(scenario.entrySlippagePct);\n  const exitSlippage = pctToDecimal(scenario.exitSlippagePct);\n\n  const entryFixedFeeUsd = Number(scenario.entryFixedFeeUsd ?? 0);\n  const exitFixedFeeUsd = Number(scenario.exitFixedFeeUsd ?? 0);\n\n  const idealEntryUsdPerMeme = entryPriceSolPerMeme * entrySolUsd;\n\n  const usdAfterEntryFixedFee = Math.max(0, usdInput - entryFixedFeeUsd);\n  const usdAfterEntrySwapFee = usdAfterEntryFixedFee * (1 - entrySwapFee);\n\n  const effectiveEntryUsdPerMeme = idealEntryUsdPerMeme * (1 + entrySlippage);\n\n  const memeQty = usdAfterEntrySwapFee / effectiveEntryUsdPerMeme;\n\n  const currentUsdPerMeme = currentSolPerMeme * currentSolUsd;\n\n  const grossCurrentValueUsd = memeQty * currentUsdPerMeme;\n\n  const afterExitSlippageUsd = grossCurrentValueUsd * (1 - exitSlippage);\n  const afterExitSwapFeeUsd = afterExitSlippageUsd * (1 - exitSwapFee);\n\n  const estimatedExitValueUsd = Math.max(0, afterExitSwapFeeUsd - exitFixedFeeUsd);\n\n  const pnlUsd = estimatedExitValueUsd - usdInput;\n  const pnlPct = (pnlUsd / usdInput) * 100;\n\n  const rawPriceMovePct =\n    ((currentSolPerMeme - entryPriceSolPerMeme) / entryPriceSolPerMeme) * 100;\n\n  return {\n    name: scenario.name,\n    description: scenario.description,\n\n    assumptions: {\n      entrySwapFeePct: scenario.entrySwapFeePct,\n      exitSwapFeePct: scenario.exitSwapFeePct,\n      entrySlippagePct: scenario.entrySlippagePct,\n      exitSlippagePct: scenario.exitSlippagePct,\n      entryFixedFeeUsd,\n      exitFixedFeeUsd\n    },\n\n    memeQty,\n\n    idealEntryUsdPerMeme,\n    effectiveEntryUsdPerMeme,\n    currentUsdPerMeme,\n\n    grossCurrentValueUsd,\n    estimatedExitValueUsd,\n\n    pnlUsd,\n    pnlPct,\n    rawPriceMovePct\n  };\n}\n\n// ============================================================\n// RUN SCENARIOS\n// ============================================================\n\nconst scenarioResults = SCENARIOS.map(simulateScenario);\n\nconst activeScenario =\n  scenarioResults.find(s => s.name === ACTIVE_SCENARIO_NAME) ||\n  scenarioResults.find(s => s.name === \"no_fees\") ||\n  scenarioResults[0];\n\nconst currentPositionValue = activeScenario.estimatedExitValueUsd;\nconst moneyLostOrGained = activeScenario.pnlUsd;\n\n// ============================================================\n// EXIT LOGIC\n// ============================================================\n\nconst targetHit = currentPositionValue >= targetValueUsd;\nconst profitTargetHit = moneyLostOrGained >= targetProfitUsd;\n\nconst stopLossHit = moneyLostOrGained <= -stopLossUsd;\n\nconst shouldExit = targetHit || stopLossHit;\n\nconst exitReason =\n  targetHit\n    ? \"TAKE_PROFIT\"\n    : stopLossHit\n      ? \"STOP_LOSS\"\n      : \"NONE\";\n\n// ============================================================\n// TRACK HIGHEST PNL\n// ============================================================\n\nconst highKey = `${key}:${activeScenario.name}`;\n\nconst prevHigh =\n  typeof store.highestPnLUsd[highKey] === \"number\"\n    ? store.highestPnLUsd[highKey]\n    : null;\n\nlet highestPointUpdated = false;\n\nif (prevHigh === null || moneyLostOrGained > prevHigh) {\n  store.highestPnLUsd[highKey] = moneyLostOrGained;\n  highestPointUpdated = true;\n}\n\nconst highestPointUSD = store.highestPnLUsd[highKey];\n\nconst openPositionsCount =\n  Object.values(portfolio.positions).filter(p => p.status === \"OPEN\").length;\n\n// ============================================================\n// OUTPUT\n// ============================================================\n\nreturn [{\n  json: {\n    ...calc,\n\n    ok: true,\n    stage: \"paper_trade\",\n\n    currentPairKey: key,\n    positionStatus: pos.status,\n    positionOpened: true,\n\n    activeScenario: activeScenario.name,\n\n    configuredBuyUsd: pos.configuredBuyUsd,\n    dollarAmountBought: usdInput,\n\n    targetProfitUsd,\n    targetValueUsd,\n\n    stopLossUsd,\n    stopLossValueUsd: usdInput - stopLossUsd,\n\n    entryPriceSolPerMeme,\n    currentPriceSolPerMeme: currentSolPerMeme,\n\n    entrySolUsd,\n    currentSolUsd,\n\n    currentPositionValue,\n    moneyLostOrGained,\n    pnlPct: activeScenario.pnlPct,\n\n    targetHit,\n    profitTargetHit,\n    stopLossHit,\n\n    shouldExit,\n    exitReason,\n\n    highestPointUSD,\n    previousHighestPointUSD: prevHigh,\n    highestPointUpdated,\n\n    portfolioStartingBankrollUsd: portfolio.startingBankrollUsd,\n    portfolioCashUsd: portfolio.cashUsd,\n    portfolioOpenPositionsCount: openPositionsCount,\n\n    entryTimestamp: pos.entryTimestamp,\n    currentTimestamp: new Date().toISOString(),\n\n    scenarioResults,\n\n    note: targetHit\n      ? \"Take-profit target hit. In live mode, this would move to sell logic.\"\n      : stopLossHit\n        ? \"Stop loss hit. In live mode, this would move to sell logic.\"\n        : \"No exit condition hit. Continue monitoring.\"\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2576,
+        672
+      ],
+      "id": "0138ad57-c119-41b9-81c7-8bf611552db8",
+      "name": "Paper Trade",
+      "retryOnFail": false
+    },
+    {
+      "parameters": {
+        "url": "https://api.dexscreener.com/token-profiles/latest/v1",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -48,
+        80
+      ],
+      "id": "974c05d2-69d3-457e-acc3-541ae344669b",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "amount": 1
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        3008,
+        880
+      ],
+      "id": "c8225f9a-9597-43cd-9df4-cfbb6cf90b63",
+      "name": "Wait1",
+      "webhookId": "YOUR_N8N_WEBHOOK_ID_1"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://beta.helius-rpc.com/?api-key=YOUR_HELIUS_API_KEY",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"both-balances\",\n  \"method\": \"getMultipleAccounts\",\n  \"params\": [\n    [\n      \"{{$node['Extract Vault Address'].json.memeVaultTokenAccount}}\",\n      \"{{$node['Extract Vault Address'].json.solVaultTokenAccount}}\"\n    ],\n    {\n      \"encoding\": \"jsonParsed\",\n      \"commitment\": \"processed\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        1440,
+        672
+      ],
+      "id": "0e01b9e4-54b4-4fd6-9d93-fcdd94ba4f1a",
+      "name": "Base and Quote Balance",
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "content": "## New Flow\nMade the polling of quote and base under the same call getMultipleAccounts. Now the pools are always pulled at the same time avoiding any differences. Updated paper trade with simulated fees to show realistic exit value.",
+        "width": 640
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1248,
+        96
+      ],
+      "typeVersion": 1,
+      "id": "edd0fcf1-2e27-4572-bed9-a615f1259163",
+      "name": "Sticky Note7"
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "{\n  \"pairAddress\": \"YOUR_PAIR_ADDRESS\",\n  \"botWalletPublicKey\": \"YOUR_BOT_WALLET_PUBLIC_KEY\",\n  \"buyUsd\": 100,\n  \"targetProfitUsd\": 10,\n  \"activeTrading\": false,\n  \"mode\": \"paper\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        336,
+        368
+      ],
+      "id": "9a79b3e4-e718-477c-8f65-1488e78fb012",
+      "name": "Bot Config"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// ============================================================\n// VALIDATE BOT CONFIG\n// Mode: Run Once for Each Item\n// ============================================================\n\nconst pairAddress = String($json.pairAddress ?? \"\").trim();\nconst botWalletPublicKey = String($json.botWalletPublicKey ?? \"\").trim();\n\nconst startingBankrollUsd = Number($json.startingBankrollUsd ?? 0);\nconst resetPortfolio = Boolean($json.resetPortfolio ?? false);\n\nconst buyUsd = Number($json.buyUsd ?? 0);\nconst targetProfitUsd = Number($json.targetProfitUsd ?? 0);\nconst stopLossUsd = Number($json.stopLossUsd ?? 0);\n\nconst activeTrading = Boolean($json.activeTrading ?? false);\nconst mode = String($json.mode ?? \"paper\").trim();\n\nconst solanaAddressPattern = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;\n\nconst errors = [];\n\nif (!solanaAddressPattern.test(pairAddress)) {\n  errors.push(\"pairAddress is missing or does not look like a Solana address.\");\n}\n\nif (!solanaAddressPattern.test(botWalletPublicKey)) {\n  errors.push(\"botWalletPublicKey is missing or does not look like a Solana address.\");\n}\n\nif (!Number.isFinite(startingBankrollUsd) || startingBankrollUsd <= 0) {\n  errors.push(\"startingBankrollUsd must be a positive number.\");\n}\n\nif (!Number.isFinite(buyUsd) || buyUsd <= 0) {\n  errors.push(\"buyUsd must be a positive number.\");\n}\n\nif (!Number.isFinite(targetProfitUsd) || targetProfitUsd <= 0) {\n  errors.push(\"targetProfitUsd must be a positive number.\");\n}\n\nif (!Number.isFinite(stopLossUsd) || stopLossUsd <= 0) {\n  errors.push(\"stopLossUsd must be a positive number.\");\n}\n\nif (![\"paper\", \"live\"].includes(mode)) {\n  errors.push(\"mode must be either 'paper' or 'live'.\");\n}\n\nif (errors.length > 0) {\n  return {\n    json: {\n      ...$json,\n      ok: false,\n      stage: \"validate_bot_config\",\n      errors,\n      note: \"Config has errors. Fix before continuing.\"\n    }\n  };\n}\n\nreturn {\n  json: {\n    ...$json,\n\n    ok: true,\n    stage: \"validate_bot_config\",\n\n    pairAddress,\n    botWalletPublicKey,\n\n    startingBankrollUsd,\n    resetPortfolio,\n\n    buyUsd,\n    targetProfitUsd,\n    stopLossUsd,\n\n    activeTrading,\n    mode,\n\n    note: activeTrading\n      ? \"Config valid, but activeTrading is true. Be careful.\"\n      : \"Config valid. Trading is disabled for now.\"\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        592,
+        672
+      ],
+      "id": "3751206d-a7a4-42ec-8e00-d2bce0363dde",
+      "name": "Validate Bot Config"
+    },
+    {
+      "parameters": {
+        "url": "https://api.dexscreener.com/tokens/v1/solana/So11111111111111111111111111111111111111112",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        2208,
+        672
+      ],
+      "id": "e61b0542-9041-43b0-aee7-14c7bad63cf0",
+      "name": "Sol Price"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// ATTACH SOL PRICE\n// Parses SOL/USD from Dexscreener response\n// and merges it back into Calculate price output.\n// ============================================================\n\n// Original MEME/SOL price data\nconst calc = $node[\"Calculate price\"].json;\n\n// All incoming items from Sol Price HTTP node\nconst items = $input.all();\n\n// Dexscreener may return:\n// 1. one item containing an array\n// 2. multiple items, one pair per item\nlet pairs = [];\n\nif (items.length === 1 && Array.isArray(items[0].json)) {\n  pairs = items[0].json;\n} else if (items.length === 1 && Array.isArray(items[0].json?.pairs)) {\n  pairs = items[0].json.pairs;\n} else {\n  pairs = items.map(item => item.json);\n}\n\nif (!Array.isArray(pairs) || pairs.length === 0) {\n  return [{\n    json: {\n      ...calc,\n      ok: false,\n      stage: \"attach_sol_price\",\n      error: \"No SOL price pairs returned from Dexscreener\",\n      rawSolPriceResponse: items.map(i => i.json)\n    }\n  }];\n}\n\n// Pick the pair with highest liquidity\nconst sorted = [...pairs].sort((a, b) => {\n  const la = Number(a?.liquidity?.usd ?? 0);\n  const lb = Number(b?.liquidity?.usd ?? 0);\n  return lb - la;\n});\n\nconst best = sorted[0];\n\nconst currentSolUsd = Number(best?.priceUsd);\n\nif (!Number.isFinite(currentSolUsd) || currentSolUsd <= 0) {\n  return [{\n    json: {\n      ...calc,\n      ok: false,\n      stage: \"attach_sol_price\",\n      error: \"Could not parse SOL/USD price\",\n      selectedPair: best,\n      rawSolPriceResponse: items.map(i => i.json)\n    }\n  }];\n}\n\n// Convert MEME/SOL price into MEME/USD\nconst usdPriceMeme =\n  Number.isFinite(Number(calc.solPriceMeme))\n    ? Number(calc.solPriceMeme) * currentSolUsd\n    : null;\n\nreturn [{\n  json: {\n    ...calc,\n\n    ok: true,\n    stage: \"attach_sol_price\",\n\n    currentSolUsd,\n    usdPriceMeme,\n\n    solUsdPriceSource: \"dexscreener\",\n    solUsdSelectedPairAddress: best?.pairAddress ?? null,\n    solUsdSelectedDexId: best?.dexId ?? null,\n    solUsdLiquidityUsd: best?.liquidity?.usd ?? null,\n    solUsdUpdatedAt: new Date().toISOString(),\n\n    note: \"SOL/USD attached. Ready for Paper Trade.\"\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        672
+      ],
+      "id": "bb95b9d3-7400-4b18-83bd-5f05122363fa",
+      "name": "Attach SOL Price"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "48af65da-3d7c-463f-9c6c-2d13e2ac7271",
+              "leftValue": "=={{  Boolean($json.shouldExit) }}",
+              "rightValue": "=={{ true }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2784,
+        672
+      ],
+      "id": "452a24e6-512b-4491-b32a-094327ad0781",
+      "name": "If Target Hit?"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// STORE EXIT / WOULD SELL\n// Runs when take-profit or stop-loss is hit.\n// Closes paper position and returns value to shared bankroll.\n// ============================================================\n\nconst trade = $json;\n\nconst store = $getWorkflowStaticData(\"global\");\n\nstore.portfolio = store.portfolio || {\n  startingBankrollUsd: Number(trade.portfolioStartingBankrollUsd ?? trade.startingBankrollUsd ?? 100),\n  cashUsd: Number(trade.portfolioCashUsd ?? 0),\n  positions: {}\n};\n\nstore.portfolio.positions = store.portfolio.positions || {};\nstore.completedTrades = store.completedTrades || [];\n\nconst key =\n  trade.currentPairKey ||\n  trade.pairAddress ||\n  trade.memeMint ||\n  trade.memeVaultTokenAccount ||\n  \"UNKNOWN_PAIR\";\n\nconst pos = store.portfolio.positions[key] ?? null;\n\nconst finalProfitUsd = Number(trade.moneyLostOrGained ?? 0);\nconst finalProfitPct = Number(trade.pnlPct ?? 0);\nconst finalPositionValueUsd = Number(trade.currentPositionValue ?? 0);\n\nconst exitReason = trade.exitReason ?? (\n  trade.targetHit ? \"TAKE_PROFIT\" :\n  trade.stopLossHit ? \"STOP_LOSS\" :\n  \"UNKNOWN\"\n);\n\nlet cashCreditedUsd = 0;\nlet alreadyClosed = false;\n\nif (pos && pos.status === \"OPEN\") {\n  store.portfolio.cashUsd = Number(store.portfolio.cashUsd ?? 0) + finalPositionValueUsd;\n\n  pos.status = \"CLOSED\";\n  pos.exitReason = exitReason;\n  pos.exitTimestamp = new Date().toISOString();\n  pos.finalPositionValueUsd = finalPositionValueUsd;\n  pos.finalProfitUsd = finalProfitUsd;\n  pos.finalProfitPct = finalProfitPct;\n\n  cashCreditedUsd = finalPositionValueUsd;\n} else if (pos && pos.status === \"CLOSED\") {\n  alreadyClosed = true;\n}\n\nconst completedTrade = {\n  exitReason,\n\n  pairAddress: trade.pairAddress ?? null,\n  memeMint: trade.memeMint ?? null,\n  botWalletPublicKey: trade.botWalletPublicKey ?? null,\n\n  buyUsd: Number(trade.dollarAmountBought ?? trade.buyUsd ?? 0),\n  configuredBuyUsd: Number(trade.configuredBuyUsd ?? trade.buyUsd ?? 0),\n\n  targetProfitUsd: Number(trade.targetProfitUsd ?? 0),\n  targetValueUsd: Number(trade.targetValueUsd ?? 0),\n  stopLossUsd: Number(trade.stopLossUsd ?? 0),\n\n  finalPositionValueUsd,\n  finalProfitUsd,\n  finalProfitPct,\n\n  cashCreditedUsd,\n  portfolioCashUsdAfterExit: store.portfolio.cashUsd,\n  portfolioStartingBankrollUsd: store.portfolio.startingBankrollUsd,\n\n  entryPriceSolPerMeme: trade.entryPriceSolPerMeme ?? null,\n  finalPriceSolPerMeme: trade.currentPriceSolPerMeme ?? trade.solPriceMeme ?? null,\n\n  entrySolUsd: trade.entrySolUsd ?? null,\n  finalSolUsd: trade.currentSolUsd ?? null,\n\n  activeScenario: trade.activeScenario ?? null,\n  entryTimestamp: trade.entryTimestamp ?? null,\n  exitSignalTimestamp: new Date().toISOString(),\n\n  action: exitReason === \"STOP_LOSS\"\n    ? \"WOULD_SELL_STOP_LOSS\"\n    : \"WOULD_SELL_TAKE_PROFIT\",\n\n  mode: trade.mode ?? \"paper\",\n  activeTrading: trade.activeTrading ?? false\n};\n\nif (!alreadyClosed) {\n  store.completedTrades.push(completedTrade);\n}\n\nif (store.completedTrades.length > 50) {\n  store.completedTrades = store.completedTrades.slice(-50);\n}\n\nconst openPositionsCount =\n  Object.values(store.portfolio.positions).filter(p => p.status === \"OPEN\").length;\n\nreturn [{\n  json: {\n    ...trade,\n\n    ok: true,\n    stage: \"store_exit_would_sell\",\n    halted: true,\n\n    action: completedTrade.action,\n    exitReason,\n\n    alreadyClosed,\n    cashCreditedUsd,\n\n    reason: alreadyClosed\n      ? \"Position was already closed. No cash credited again.\"\n      : exitReason === \"STOP_LOSS\"\n        ? \"Stop loss hit. Exit snapshot stored and value returned to shared bankroll.\"\n        : \"Take-profit target hit. Exit snapshot stored and value returned to shared bankroll.\",\n\n    finalProfitUsd,\n    finalProfitPct,\n    finalPositionValueUsd,\n\n    portfolioCashUsd: store.portfolio.cashUsd,\n    portfolioStartingBankrollUsd: store.portfolio.startingBankrollUsd,\n    portfolioOpenPositionsCount: openPositionsCount,\n\n    completedTrade,\n    completedTradesStored: store.completedTrades.length,\n\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2992,
+        656
+      ],
+      "id": "b71caf7b-282b-4d09-9b2d-a8b2fc8399ce",
+      "name": "Target Hit / Store Profit"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// BOT CONFIG / WATCHLIST\n// One item per pair address.\n// Shared bankroll across all coins.\n// ============================================================\n\nconst botWalletPublicKey = \"YOUR_BOT_WALLET_PUBLIC_KEY\";\n\nconst activeTrading = false;\nconst mode = \"paper\";\n\n// Shared bankroll for the whole bot\nconst startingBankrollUsd = 100;\n\n// Set this true ONCE if you want to reset portfolio cash/positions\nconst resetPortfolio = false;\n\n// Default values for all pairs\nconst defaultBuyUsd = 100;              // tries to use up to this much per position\nconst defaultTargetProfitUsd = 15;    // profit target per position\nconst defaultStopLossUsd = 5;           // stop loss per position\n\n// Add your pair addresses here\nconst watchlist = [\n  {\n    label: \"coin_1\",\n    pairAddress: \"YOUR_PAIR_ADDRESS_1\",\n    buyUsd: defaultBuyUsd,\n    targetProfitUsd: defaultTargetProfitUsd,\n    stopLossUsd: defaultStopLossUsd\n  },\n  {\n    label: \"coin_2\",\n    pairAddress: \"YOUR_PAIR_ADDRESS_2\",\n    buyUsd: defaultBuyUsd,\n    targetProfitUsd: defaultTargetProfitUsd,\n    stopLossUsd: defaultStopLossUsd\n  },\n  {\n    label: \"coin_3\",\n    pairAddress: \"YOUR_PAIR_ADDRESS_3\",\n    buyUsd: defaultBuyUsd,\n    targetProfitUsd: defaultTargetProfitUsd,\n    stopLossUsd: defaultStopLossUsd\n  },\n    {\n    label: \"coin_4\",\n    pairAddress: \"YOUR_PAIR_ADDRESS_4\",\n    buyUsd: defaultBuyUsd,\n    targetProfitUsd: defaultTargetProfitUsd,\n    stopLossUsd: defaultStopLossUsd\n  },\n      {\n    label: \"coin_5\",\n    pairAddress: \"YOUR_PAIR_ADDRESS_5\",\n    buyUsd: defaultBuyUsd,\n    targetProfitUsd: defaultTargetProfitUsd,\n    stopLossUsd: defaultStopLossUsd\n  }\n];\n\nreturn watchlist.map((coin) => ({\n  json: {\n    label: coin.label,\n    pairAddress: coin.pairAddress,\n\n    botWalletPublicKey,\n\n    startingBankrollUsd,\n    resetPortfolio,\n\n    buyUsd: coin.buyUsd,\n    targetProfitUsd: coin.targetProfitUsd,\n    stopLossUsd: coin.stopLossUsd,\n\n    activeTrading,\n    mode\n  }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        192,
+        672
+      ],
+      "id": "25075d3a-bc62-45c6-b27c-1daaf0d44db8",
+      "name": "Bot Config / Watchlist"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        384,
+        672
+      ],
+      "id": "da726eec-9939-4a77-af91-73ead499e93e",
+      "name": "Loop Over Pairs"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        560,
+        880
+      ],
+      "id": "b1f64024-b664-45f1-97b2-22963faa9f2e",
+      "name": "Wait",
+      "webhookId": "YOUR_N8N_WEBHOOK_ID_2"
+    },
+    {
+      "parameters": {
+        "url": "=https://api.dexscreener.com/latest/dex/pairs/solana/{{$node[\"Calculate price\"].json.pairAddress}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        1808,
+        448
+      ],
+      "id": "bc5ee58c-ef27-45d2-95cf-7f2ce7048296",
+      "name": "Dexscreener Pair Price"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const bot = $node[\"Calculate price\"].json;\nconst dex = $json.pair;\n\nconst botPrice = Number(bot.solPriceMeme);\nconst dexPrice = Number(dex.priceNative);\n\nif (!Number.isFinite(botPrice) || !Number.isFinite(dexPrice)) {\n  return {\n    json: {\n      ok: false,\n      error: \"Invalid bot or Dexscreener price\",\n      botPrice,\n      dexPrice\n    }\n  };\n}\n\nconst difference = botPrice - dexPrice;\n\nconst differencePct =\n  ((botPrice - dexPrice) / dexPrice) * 100;\n\nreturn {\n  json: {\n    ok: true,\n\n    pairAddress: dex.pairAddress,\n    token: dex.baseToken?.symbol,\n\n    botPriceSol: botPrice,\n    dexPriceSol: dexPrice,\n\n    differenceSol: difference,\n    differencePct,\n\n    botTimestamp: bot.timestamp,\n    benchmarkTimestamp: new Date().toISOString()\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2016,
+        448
+      ],
+      "id": "58a92ef7-01af-4e39-98a6-d4f58318039f",
+      "name": "Benchmark Compare"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Bot Config / Watchlist",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vaults SPL": {
+      "main": [
+        [
+          {
+            "node": "Vaults Token2022",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vaults Token2022": {
+      "main": [
+        [
+          {
+            "node": "Extract Vault Address",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pair Input": {
+      "main": [
+        []
+      ]
+    },
+    "Extract Vault Address": {
+      "main": [
+        [
+          {
+            "node": "Base and Quote Balance",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate price": {
+      "main": [
+        [
+          {
+            "node": "Dexscreener Pair Price",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Paper Trade": {
+      "main": [
+        [
+          {
+            "node": "If Target Hit?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait1": {
+      "main": [
+        [
+          {
+            "node": "Base and Quote Balance",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Base and Quote Balance": {
+      "main": [
+        [
+          {
+            "node": "Calculate price",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bot Config": {
+      "main": [
+        []
+      ]
+    },
+    "Validate Bot Config": {
+      "main": [
+        [
+          {
+            "node": "Vaults SPL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sol Price": {
+      "main": [
+        [
+          {
+            "node": "Attach SOL Price",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Attach SOL Price": {
+      "main": [
+        [
+          {
+            "node": "Paper Trade",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Target Hit?": {
+      "main": [
+        [
+          {
+            "node": "Target Hit / Store Profit",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bot Config / Watchlist": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Pairs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Pairs": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Validate Bot Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        []
+      ]
+    },
+    "Target Hit / Store Profit": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Pairs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dexscreener Pair Price": {
+      "main": [
+        [
+          {
+            "node": "Benchmark Compare",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Benchmark Compare": {
+      "main": [
+        [
+          {
+            "node": "Sol Price",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": []
+}
