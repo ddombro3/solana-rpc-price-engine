@@ -6,11 +6,26 @@ The goal is to get price data directly from on chain pool state instead of relyi
 
 ## Benchmark Example
 
-One of the main reasons for calculating price directly from Solana pool reserves is to compare how quickly on-chain state reflects market movement versus external price APIs.
+One of the main advantages of calculating price directly from Solana pool reserves is speed. The engine reads the current on-chain pool state directly instead of waiting for a third-party pricing API to refresh.
 
-Notice the timestamp and the price difference between the two sources. The direct RPC-based engine is already reporting the lower, updated price while the Dexscreener API is still returning the older value.
+In this benchmark, the two prices were captured only **231 ms apart**:
 
-This shows the bot reflecting the actual pool price much sooner. The same behavior can also be seen visually in the Dexscreener GUI during the sharp price drop.
+```text
+Bot Price:        0.0000019527 SOL
+Dexscreener API:  0.0000024950 SOL
+Difference:       -21.74%
+
+Bot Timestamp:        02:26:12.526
+Benchmark Timestamp:  02:26:12.757
+```
+
+Despite being measured essentially at the same moment, my bot had already detected the much lower price directly from the pool reserves while the Dexscreener API was still returning the older, higher value.
+
+This is the main advantage of the engine: it reacts directly to changes in the underlying pool instead of relying on a cached or delayed external price feed.
+
+The screenshots below make this very clear. During the steep price drop, my bot had already reflected the lower price while the Dexscreener API was still behind. The same delay is also clearly visible on the Dexscreener GUI, where the displayed price was still catching up to the move my bot had already detected.
+
+For latency-sensitive trading, this difference matters. A system relying on an external API can be reacting to stale market data while the underlying on-chain state has already changed significantly.
 
 ![Benchmark Output](docs/BenchmarkTestingSOLBOT.png)
 
